@@ -43,10 +43,6 @@ const model = genAI.getGenerativeModel({
 
 const client = new Client({
   authStrategy: new LocalAuth(),
-  webVersionCache: {
-    type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-  },
   puppeteer: {
     executablePath: '/usr/bin/chromium',
     headless: true,
@@ -54,9 +50,10 @@ const client = new Client({
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-gpu',
+      '--disable-accelerated-2d-canvas',
       '--no-first-run',
-      '--no-default-browser-check'
+      '--no-zygote',
+      '--disable-gpu'
     ]
   }
 });
@@ -66,20 +63,31 @@ client.on('qr', (qr) => {
   latestQR = qr;
 });
 
+// Oturum Durum Takipçileri
+client.on('authenticated', () => {
+  console.log('🔑 OTURUM DOĞRULANDI! WhatsApp sohbetleri yükleniyor...');
+});
+
+client.on('loading_screen', (percent, message) => {
+  console.log(`⏳ Yükleniyor: %${percent} - ${message}`);
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('❌ OTURUM BAŞARISIZ:', msg);
+});
+
 client.on('ready', () => {
   console.log('🚀 WhatsApp Yaşam & Spor Koçun Bulutta Aktif!');
   latestQR = '';
 });
 
-// Botun kendi verdiği cevaplara tekrar cevap vererek sonsuz döngüye girmesini önleyen hafıza
 const botMessages = new Set();
 
 client.on('message_create', async (msg) => {
-  // Eğer bu mesaj botun kendi attığı cevap ise işlem yapma
   if (botMessages.has(msg.id.id)) return;
 
-  const isSelfMessage = msg.from === msg.to; // Kendine mesaj senaryosu
-  const isIncoming = !msg.fromMe;           // Başkasından gelen mesaj
+  const isSelfMessage = msg.from === msg.to;
+  const isIncoming = !msg.fromMe;
 
   if (isIncoming || isSelfMessage) {
     try {
@@ -92,7 +100,7 @@ client.on('message_create', async (msg) => {
       const sentMsg = await msg.reply(replyText);
       if (sentMsg && sentMsg.id) {
         botMessages.add(sentMsg.id.id);
-        setTimeout(() => botMessages.delete(sentMsg.id.id), 300000); // 5 dk sonra temizle
+        setTimeout(() => botMessages.delete(sentMsg.id.id), 300000);
       }
     } catch (error) {
       console.error('Mesaj işleme hatası:', error);
