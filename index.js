@@ -7,29 +7,40 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 let latestQR = '';
+let isReady = false;
 
-app.get('/', (req, res) => res.send('Bot aktif! QR için /qr adresine gidin.'));
+app.get('/', (req, res) => res.send('Bot aktif çalışıyor!'));
 
 app.get('/qr', async (req, res) => {
+  if (isReady) {
+    return res.send(`
+      <div style="font-family:sans-serif; text-align:center; padding-top:50px; color:#25D366;">
+        <h1>✅ WhatsApp Bağlantısı Başarılı!</h1>
+        <p style="color:#333; font-size:18px;">Botunuz aktif ve mesajlarınızı bekliyor.</p>
+      </div>
+    `);
+  }
+
   if (!latestQR) {
     return res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
-        <h2>QR kod hazırlanıyor veya zaten giriş yapıldı!</h2>
+        <h2>QR kod oluşturuluyor... (Sunucu başlatılıyor)</h2>
         <p>Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>
       </div>
     `);
   }
+
   try {
     const qrImage = await QRCode.toDataURL(latestQR);
     res.send(`
       <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:90vh; font-family:sans-serif;">
         <h1 style="color:#25D366;">WhatsApp Koçluk Botu Eşleştirme</h1>
         <img src="${qrImage}" style="width:280px; height:280px; border:3px solid #25D366; padding:15px; border-radius:12px;"/>
-        <p style="margin-top:20px; font-size:18px;">Sayfayı <b>F5 yapıp yeniledikten hemen sonra</b> tara.</p>
+        <p style="margin-top:20px; font-size:18px;">Telefonundan <b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla</b> kısmından tara.</p>
       </div>
     `);
   } catch (err) {
-    res.send('QR kod resme dönüştürülürken hata oluştu.');
+    res.send('QR resme dönüştürülürken hata oluştu.');
   }
 });
 
@@ -53,7 +64,9 @@ const client = new Client({
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--disable-extensions',
+      '--js-flags=--max-old-space-size=256'
     ]
   }
 });
@@ -61,24 +74,21 @@ const client = new Client({
 client.on('qr', (qr) => {
   console.log('✅ YENİ QR KODU ALINDI!');
   latestQR = qr;
+  isReady = false;
 });
 
-// Oturum Durum Takipçileri
 client.on('authenticated', () => {
-  console.log('🔑 OTURUM DOĞRULANDI! WhatsApp sohbetleri yükleniyor...');
-});
-
-client.on('loading_screen', (percent, message) => {
-  console.log(`⏳ Yükleniyor: %${percent} - ${message}`);
-});
-
-client.on('auth_failure', (msg) => {
-  console.error('❌ OTURUM BAŞARISIZ:', msg);
+  console.log('🔑 OTURUM DOĞRULANDI!');
 });
 
 client.on('ready', () => {
   console.log('🚀 WhatsApp Yaşam & Spor Koçun Bulutta Aktif!');
   latestQR = '';
+  isReady = true;
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('❌ OTURUM BAŞARISIZ:', msg);
 });
 
 const botMessages = new Set();
