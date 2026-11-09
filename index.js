@@ -8,8 +8,9 @@ const PORT = process.env.PORT || 3000;
 
 let latestQR = '';
 let isReady = false;
+let clientError = '';
 
-app.get('/', (req, res) => res.send('Bot aktif çalışıyor!'));
+app.get('/', (req, res) => res.send('Bot aktif çalışıyor! QR için /qr adresine gidin.'));
 
 app.get('/qr', async (req, res) => {
   if (isReady) {
@@ -21,11 +22,20 @@ app.get('/qr', async (req, res) => {
     `);
   }
 
+  if (clientError) {
+    return res.send(`
+      <div style="font-family:sans-serif; text-align:center; padding-top:50px; color:red;">
+        <h2>⚠️ Bağlantı Uyarısı:</h2>
+        <p>${clientError}</p>
+      </div>
+    `);
+  }
+
   if (!latestQR) {
     return res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
-        <h2>QR kod oluşturuluyor... (Sunucu başlatılıyor)</h2>
-        <p>Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>
+        <h2>⏳ QR kod hazırlanıyor... (Sunucu başlatılıyor)</h2>
+        <p>Lütfen 15-20 saniye bekleyip sayfayı yenileyin (F5).</p>
       </div>
     `);
   }
@@ -52,6 +62,7 @@ const model = genAI.getGenerativeModel({
   systemInstruction: "Sen kullanıcının kişisel yaşam ve spor koçusun. Tavrın motive edici, disiplinli, samimi ve sonuç odaklı olmalı."
 });
 
+// Ultra hafif RAM optimizasyonlu Puppeteer ayarları
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
@@ -66,7 +77,28 @@ const client = new Client({
       '--no-zygote',
       '--disable-gpu',
       '--disable-extensions',
-      '--js-flags=--max-old-space-size=256'
+      '--disable-component-extensions-with-background-pages',
+      '--disable-default-apps',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-update',
+      '--disable-domain-reliability',
+      '--disable-ipc-flooding-protection',
+      '--disable-notifications',
+      '--disable-popup-blocking',
+      '--disable-print-preview',
+      '--disable-prompt-on-repost',
+      '--disable-renderer-backgrounding',
+      '--disable-speech-api',
+      '--disable-sync',
+      '--hide-scrollbars',
+      '--metrics-recording-only',
+      '--no-pings'
     ]
   }
 });
@@ -89,6 +121,7 @@ client.on('ready', () => {
 
 client.on('auth_failure', (msg) => {
   console.error('❌ OTURUM BAŞARISIZ:', msg);
+  clientError = 'Oturum doğrulaması başarısız oldu.';
 });
 
 const botMessages = new Set();
@@ -118,6 +151,11 @@ client.on('message_create', async (msg) => {
   }
 });
 
+process.on('unhandledRejection', (reason) => {
+  console.error('Yakalanamayan Hata:', reason);
+});
+
 client.initialize().catch(err => {
   console.error('Client başlatma hatası:', err);
+  clientError = err.message;
 });
