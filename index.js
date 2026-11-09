@@ -8,16 +8,14 @@ const PORT = process.env.PORT || 3000;
 
 let latestQR = '';
 
-// Ana sayfa
-app.get('/', (req, res) => res.send('Bot aktif çalışıyor! QR kod için /qr adresine gidin.'));
+app.get('/', (req, res) => res.send('Bot aktif! QR için /qr adresine gidin.'));
 
-// QR Kodu Web Sayfası Olarak Gösteren Rota
 app.get('/qr', async (req, res) => {
   if (!latestQR) {
     return res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
         <h2>QR kod hazırlanıyor veya zaten giriş yapıldı!</h2>
-        <p>Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>
+        <p>Lütfen 10 saniye bekleyip sayfayı yenileyin (F5).</p>
       </div>
     `);
   }
@@ -27,7 +25,7 @@ app.get('/qr', async (req, res) => {
       <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:90vh; font-family:sans-serif;">
         <h1 style="color:#25D366;">WhatsApp Koçluk Botu Eşleştirme</h1>
         <img src="${qrImage}" style="width:280px; height:280px; border:3px solid #25D366; padding:15px; border-radius:12px;"/>
-        <p style="margin-top:20px; font-size:18px;">Telefonundan <b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla</b> kısmından tara.</p>
+        <p style="margin-top:20px; font-size:18px;">Sayfayı <b>F5 yapıp yeniledikten hemen sonra</b> tara (Süresi hızlı dolar).</p>
       </div>
     `);
   } catch (err) {
@@ -37,14 +35,12 @@ app.get('/qr', async (req, res) => {
 
 app.listen(PORT, () => console.log(`Sunucu ${PORT} portunda dinleniyor.`));
 
-// Gemini API
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({
   model: "gemini-1.5-flash",
   systemInstruction: "Sen kullanıcının kişisel yaşam ve spor koçusun. Tavrın motive edici, disiplinli, samimi ve sonuç odaklı olmalı."
 });
 
-// WhatsApp İstemci
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
@@ -56,19 +52,20 @@ const client = new Client({
       '--disable-dev-shm-usage',
       '--no-zygote',
       '--single-process',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ]
   }
 });
 
 client.on('qr', (qr) => {
-  console.log('✅ YENİ QR KODU ALINDI! /qr adresinden görebilirsin.');
+  console.log('✅ YENİ QR KODU ALINDI!');
   latestQR = qr;
 });
 
 client.on('ready', () => {
   console.log('🚀 WhatsApp Yaşam & Spor Koçun Bulutta Aktif!');
-  latestQR = ''; // Giriş yapıldıktan sonra QR'ı temizle
+  latestQR = '';
 });
 
 client.on('message', async (msg) => {
