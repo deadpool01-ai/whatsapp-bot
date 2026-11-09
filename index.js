@@ -71,14 +71,32 @@ client.on('ready', () => {
   latestQR = '';
 });
 
-client.on('message', async (msg) => {
-  try {
-    const chat = model.startChat();
-    const result = await chat.sendMessage(msg.body);
-    const response = await result.response;
-    await msg.reply(response.text());
-  } catch (error) {
-    console.error('Mesaj hatası:', error);
+// Botun kendi verdiği cevaplara tekrar cevap vererek sonsuz döngüye girmesini önleyen hafıza
+const botMessages = new Set();
+
+client.on('message_create', async (msg) => {
+  // Eğer bu mesaj botun kendi attığı cevap ise işlem yapma
+  if (botMessages.has(msg.id.id)) return;
+
+  const isSelfMessage = msg.from === msg.to; // Kendine mesaj senaryosu
+  const isIncoming = !msg.fromMe;           // Başkasından gelen mesaj
+
+  if (isIncoming || isSelfMessage) {
+    try {
+      console.log(`📩 Yeni mesaj alındı: ${msg.body}`);
+      const chat = model.startChat();
+      const result = await chat.sendMessage(msg.body);
+      const response = await result.response;
+      const replyText = response.text();
+
+      const sentMsg = await msg.reply(replyText);
+      if (sentMsg && sentMsg.id) {
+        botMessages.add(sentMsg.id.id);
+        setTimeout(() => botMessages.delete(sentMsg.id.id), 300000); // 5 dk sonra temizle
+      }
+    } catch (error) {
+      console.error('Mesaj işleme hatası:', error);
+    }
   }
 });
 
