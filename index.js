@@ -15,7 +15,7 @@ app.get('/qr', async (req, res) => {
     return res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
         <h2>QR kod hazırlanıyor veya zaten giriş yapıldı!</h2>
-        <p>Lütfen 10 saniye bekleyip sayfayı yenileyin (F5).</p>
+        <p>Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>
       </div>
     `);
   }
@@ -25,7 +25,7 @@ app.get('/qr', async (req, res) => {
       <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:90vh; font-family:sans-serif;">
         <h1 style="color:#25D366;">WhatsApp Koçluk Botu Eşleştirme</h1>
         <img src="${qrImage}" style="width:280px; height:280px; border:3px solid #25D366; padding:15px; border-radius:12px;"/>
-        <p style="margin-top:20px; font-size:18px;">Sayfayı <b>F5 yapıp yeniledikten hemen sonra</b> tara (Süresi hızlı dolar).</p>
+        <p style="margin-top:20px; font-size:18px;">Sayfayı <b>F5 yapıp yeniledikten hemen sonra</b> tara.</p>
       </div>
     `);
   } catch (err) {
@@ -43,6 +43,10 @@ const model = genAI.getGenerativeModel({
 
 const client = new Client({
   authStrategy: new LocalAuth(),
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+  },
   puppeteer: {
     executablePath: '/usr/bin/chromium',
     headless: true,
@@ -50,10 +54,9 @@ const client = new Client({
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--no-zygote',
-      '--single-process',
       '--disable-gpu',
-      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      '--no-first-run',
+      '--no-default-browser-check'
     ]
   }
 });
