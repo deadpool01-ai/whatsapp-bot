@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const QRCode = require('qrcode');
@@ -9,8 +9,9 @@ const PORT = process.env.PORT || 3000;
 
 let latestQR = '';
 let isReady = false;
+let activeSock = null;
 
-app.get('/', (req, res) => res.send('Baileys Bot aktif! QR için /qr adresine gidin.'));
+app.get('/', (req, res) => res.send('Baileys Bot aktif! Bağlanmak için /qr adresine gidin.'));
 
 app.get('/qr', async (req, res) => {
   if (isReady) {
@@ -22,26 +23,60 @@ app.get('/qr', async (req, res) => {
     `);
   }
 
-  if (!latestQR) {
-    return res.send(`
-      <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
-        <h2>⏳ QR kod hazırlanıyor...</h2>
-        <p>5 saniye bekleyip sayfayı yenile (F5).</p>
+  let qrHtml = '<p>QR hazırlanıyor...</p>';
+  if (latestQR) {
+    try {
+      const qrImage = await QRCode.toDataURL(latestQR);
+      qrHtml = `<img src="${qrImage}" style="width:220px; height:220px; border:2px solid #ccc; padding:10px; border-radius:10px;"/>`;
+    } catch (e) {}
+  }
+
+  res.send(`
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:90vh; font-family:sans-serif; text-align:center; padding:20px;">
+      <h1 style="color:#25D366;">WhatsApp Koçluk Botu Bağlantısı</h1>
+      
+      <div style="background:#f4f4f4; padding:20px; border-radius:12px; max-width:400px; width:100%; margin-bottom:25px;">
+        <h3>Yöntem 1: Telefon Numarası ile (Önerilen)</h3>
+        <p style="font-size:14px; color:#555;">Numaranı başında <b>90</b> olacak şekilde boşluksuz yaz (Örn: 905321234567)</p>
+        <form action="/pair" method="GET" style="display:flex; gap:8px; justify-content:center; margin-top:10px;">
+          <input type="text" name="number" placeholder="905XXXXXXXXX" required style="padding:10px; font-size:16px; border:1px solid #ccc; border-radius:6px; width:180px;"/>
+          <button type="submit" style="padding:10px 16px; font-size:16px; background:#25D366; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Kod Al</button>
+        </form>
       </div>
-    `);
+
+      <div>
+        <h4>Yöntem 2: QR Kod</h4>
+        ${qrHtml}
+      </div>
+    </div>
+  `);
+});
+
+app.get('/pair', async (req, res) => {
+  if (!activeSock) return res.send('Sunucu henüz hazır değil, 5 saniye sonra geri dönüp tekrar dene.');
+  const rawNumber = req.query.number || '';
+  const cleanNumber = rawNumber.replace(/\D/g, '');
+
+  if (cleanNumber.length < 11) {
+    return res.send('Hatalı numara! Lütfen başında 90 olacak şekilde 12 haneli gir (Örn: 905321234567). <a href="/qr">Geri Dön</a>');
   }
 
   try {
-    const qrImage = await QRCode.toDataURL(latestQR);
+    const code = await activeSock.requestPairingCode(cleanNumber);
+    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
     res.send(`
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:90vh; font-family:sans-serif;">
-        <h1 style="color:#25D366;">WhatsApp Koçluk Botu Eşleştirme</h1>
-        <img src="${qrImage}" style="width:280px; height:280px; border:3px solid #25D366; padding:15px; border-radius:12px;"/>
-        <p style="margin-top:20px; font-size:18px;">Telefonundan <b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla</b> kısmından tara.</p>
+      <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
+        <h2>WhatsApp Eşleştirme Kodun:</h2>
+        <div style="font-size:36px; font-weight:bold; letter-spacing:4px; color:#25D366; background:#f0fdf4; display:inline-block; padding:15px 30px; border-radius:12px; border:2px dashed #25D366; margin:20px 0;">
+          ${formattedCode}
+        </div>
+        <p style="font-size:16px; color:#333;">Telefonunda <b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla -> Telefon numarasıyla bağla</b> kısmına girip bu kodu yaz.</p>
+        <p style="margin-top:20px;"><a href="/qr">Durumu Kontrol Et</a></p>
       </div>
     `);
   } catch (err) {
-    res.send('QR resme dönüştürülürken hata oluştu.');
+    console.error('Eşleştirme kodu hatası:', err);
+    res.send(`Kod alınırken hata oluştu: ${err.message}. <a href="/qr">Tekrar Dene</a>`);
   }
 });
 
@@ -63,11 +98,12 @@ async function connectToWhatsApp() {
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.macOS('Desktop'),
+    browser: ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
     markOnlineOnConnect: false
   });
 
+  activeSock = sock;
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
@@ -90,7 +126,7 @@ async function connectToWhatsApp() {
       isReady = false;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(`⚠️ Bağlantı kapandı (Kod: ${statusCode}), yeniden bağlanılıyor:`, shouldReconnect);
+      console.log(`⚠️ Bağlantı kapandı (Kod: ${statusCode}):`, lastDisconnect?.error?.message || '');
       if (shouldReconnect) {
         setTimeout(connectToWhatsApp, 2000);
       }
