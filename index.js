@@ -54,10 +54,17 @@ const model = genAI.getGenerativeModel({
 
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
-  const { version } = await fetchLatestBaileysVersion();
+  
+  let waVersion;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    waVersion = version;
+  } catch (e) {
+    console.log('⚠️ Sürüm alınamadı, varsayılan kullanılıyor.');
+  }
 
   const sock = makeWASocket({
-    version,
+    ...(waVersion ? { version: waVersion } : {}),
     auth: state,
     logger: pino({ level: 'silent' }),
     browser: Browsers.macOS('Desktop'),
@@ -124,57 +131,20 @@ async function connectToWhatsApp() {
 
       // Kullanıcının kendi numarası (Bağlantıdan çekilen temiz numara)
       const myNumber = state.creds.me?.id?.split(':')[0];
-      
       if (!myNumber) continue;
 
-      // Mesaj kimden geldi (Eğer kendi numaramızdan geliyorsa biz atmışızdır)
-      const isFromMe = msg.key.fromMe || (remoteJid.includes(myNumber));
+      // Mesajın kendi telefonundan çıkıp çıkmadığını veya sana gönderilip gönderilmediğini kontrol et
+      const isFromMe = msg.key.fromMe || remoteJid.includes(myNumber);
 
       if (isFromMe) {
         console.log(`📩 YAKALANDI: "${text}"`);
         try {
           const chat = model.startChat();
           const result = await chat.sendMessage(text);
-          const replyText = result.response.text() + '\u200B';
+          const replyText = result.response.text() + '\u200B'; // Görünmez imza
 
+          // Cevabı direkt olarak "Kendine Mesaj At" (Siz) sohbetine yolla
           await sock.sendMessage(myNumber + '@s.whatsapp.net', { text: replyText });
-          console.log('✅ YANIT İLETİLDİ!');
-        } catch (error) {
-          console.error('❌ Gemini Hatası:', error);
-        }
-      }
-    }
-  });
-      }
-
-      const text = raw?.conversation || raw?.extendedTextMessage?.text;
-      if (!text || text.includes('\u200B')) continue;
-
-      const now = Math.floor(Date.now() / 1000);
-      if (now - Number(msg.messageTimestamp || now) > 60) continue;
-
-      const remoteJid = msg.key.remoteJid;
-      if (!remoteJid || remoteJid.includes('@g.us') || remoteJid === 'status@broadcast') continue;
-
-      // Hem telefon numarası hem @lid kimliğini doğrudan diskten kontrol et
-      const myNumber = state.creds.me?.id?.split(':')[0]?.split('@')[0];
-      const myLid = state.creds.me?.lid?.split(':')[0]?.split('@')[0];
-      const senderUser = remoteJid.split('@')[0].split(':')[0];
-      const altUser = msg.key.remoteJidAlt?.split('@')[0]?.split(':')[0];
-
-      const isSelfChat =
-        (myNumber && (senderUser === myNumber || altUser === myNumber)) ||
-        (myLid && (senderUser === myLid || altUser === myLid));
-      const isIncoming = !msg.key.fromMe;
-
-      if (isSelfChat || isIncoming) {
-        console.log(`📩 YAKALANDI: "${text}"`);
-        try {
-          const chat = model.startChat();
-          const result = await chat.sendMessage(text);
-          const replyText = result.response.text() + '\u200B';
-
-          await sock.sendMessage(remoteJid, { text: replyText });
           console.log('✅ YANIT İLETİLDİ!');
         } catch (error) {
           console.error('❌ Gemini Hatası:', error);
