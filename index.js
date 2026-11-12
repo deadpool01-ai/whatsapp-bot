@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const QRCode = require('qrcode');
@@ -63,13 +63,16 @@ async function connectToWhatsApp() {
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
-    browser: ['Ubuntu', 'Chrome', '20.0.04']
+    browser: Browsers.macOS('Desktop'),
+    syncFullHistory: false,
+    markOnlineOnConnect: false
   });
 
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
+    if (connection) console.log('🔄 Bağlantı durumu:', connection);
 
     if (qr) {
       console.log('✅ YENİ QR KODU ALINDI!');
@@ -85,10 +88,11 @@ async function connectToWhatsApp() {
 
     if (connection === 'close') {
       isReady = false;
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('Bağlantı kapandı, yeniden bağlanılıyor:', shouldReconnect);
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      console.log(`⚠️ Bağlantı kapandı (Kod: ${statusCode}), yeniden bağlanılıyor:`, shouldReconnect);
       if (shouldReconnect) {
-        connectToWhatsApp();
+        setTimeout(connectToWhatsApp, 2000);
       }
     }
   });
@@ -103,7 +107,6 @@ async function connectToWhatsApp() {
       const remoteJid = msg.key.remoteJid;
       if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
-      // Hem telefon numarası hem de yeni @lid kimliği için kendine mesaj kontrolü
       const myNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
       const myLid = sock.user?.lid?.split(':')[0]?.split('@')[0];
       const remoteUser = remoteJid.split('@')[0].split(':')[0];
@@ -111,13 +114,12 @@ async function connectToWhatsApp() {
       const isSelfChat = (myNumber && remoteUser === myNumber) || (myLid && remoteUser === myLid);
       const isIncoming = !msg.key.fromMe;
 
-      // Süreli (kaybolan) mesajları ve normal mesajları çöz
       const innerMsg = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message;
       const text = innerMsg?.conversation || innerMsg?.extendedTextMessage?.text;
 
       if (!text) continue;
 
-      console.log(`🔍 Mesaj algılandı | Kimden: ${remoteJid} | Kendi Sohbetim mi: ${isSelfChat} | İçerik: ${text}`);
+      console.log(`🔍 Mesaj algılandı | Kimden: ${remoteJid} | Kendi Sohbetim: ${isSelfChat} | İçerik: ${text}`);
 
       if (isIncoming || isSelfChat) {
         try {
