@@ -91,6 +91,7 @@ const model = genAI.getGenerativeModel({
 
 const botMessages = new Set();
 const processedIds = new Set();
+const messageStore = new Map();
 
 async function connectToWhatsApp() {
   console.log('🔌 WhatsApp soketi başlatılıyor...');
@@ -108,14 +109,23 @@ async function connectToWhatsApp() {
   const sock = makeWASocket({
     ...(waVersion ? { version: waVersion } : {}),
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: pino({ level: 'error' }),
     browser: ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
-    markOnlineOnConnect: false
+    markOnlineOnConnect: false,
+    emitOwnEvents: true,
+    getMessage: async (key) => {
+      return messageStore.get(key.id) || { conversation: '' };
+    }
   });
 
   activeSock = sock;
   sock.ev.on('creds.update', saveCreds);
+
+  // En alt katman ham WebSocket mesaj dinleyicisi (şifre çözülmeden önce yakalar)
+  sock.ws.on('CB:message', (node) => {
+    console.log('📡 Ham Sinyal Geldi | Kimden:', node?.attrs?.from, '| Tip:', node?.attrs?.type);
+  });
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -148,19 +158,24 @@ async function connectToWhatsApp() {
   sock.ev.on('messages.upsert', async (m) => {
     for (const msg of m.messages) {
       if (!msg.message) continue;
+      messageStore.set(msg.key.id, msg.message);
       if (botMessages.has(msg.key.id) || processedIds.has(msg.key.id)) continue;
 
       const remoteJid = msg.key.remoteJid;
       if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
-      // Telefondan kendine atılan mesajlardaki deviceSentMessage zarfını aç
       let rawContent = msg.message;
-      if (rawContent?.deviceSentMessage?.message) rawContent = rawContent.deviceSentMessage.message;
-      if (rawContent?.ephemeralMessage?.message) rawContent = rawContent.ephemeralMessage.message;
-      if (rawContent?.viewOnceMessage?.message) rawContent = rawContent.viewOnceMessage.message;
-      if (rawContent?.viewOnceMessageV2?.message) rawContent = rawContent.viewOnceMessageV2.message;
+      for (let i = 0; i < 4; i++) {
+        if (rawContent?.deviceSentMessage?.message) rawContent = rawContent.deviceSentMessage.message;
+        else if (rawContent?.ephemeralMessage?.message) rawContent = rawContent.ephemeralMessage.message;
+        else if (rawContent?.viewOnceMessage?.message) rawContent = rawContent.viewOnceMessage.message;
+        else if (rawContent?.viewOnceMessageV2?.message) rawContent = rawContent.viewOnceMessageV2.message;
+        else break;
+      }
 
       const text = rawContent?.conversation || rawContent?.extendedTextMessage?.text;
+      console.log(`⚡ Paket Açıldı [${m.type}] | JID: ${remoteJid} | fromMe: ${msg.key.fromMe} | Metin: ${text || 'METİN YOK'}`);
+
       if (!text) continue;
 
       const myNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
@@ -172,8 +187,6 @@ async function connectToWhatsApp() {
         (myNumber && (remoteUser === myNumber || altUser === myNumber)) ||
         (myLid && (remoteUser === myLid || altUser === myLid));
       const isIncoming = !msg.key.fromMe;
-
-      console.log(`📩 Mesaj Yakalandı | JID: ${remoteJid} | Self: ${isSelfChat} | Metin: ${text}`);
 
       if (isIncoming || isSelfChat) {
         processedIds.add(msg.key.id);
