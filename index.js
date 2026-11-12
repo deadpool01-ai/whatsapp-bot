@@ -142,6 +142,16 @@ async function connectToWhatsApp() {
       console.log('👤 Bağlı Kullanıcı Bilgisi:', JSON.stringify(sock.user));
       latestQR = '';
       isReady = true;
+
+      // Bağlantı açıldığı an kendine ilk mesajı atarak şifreleme oturumunu başlat
+      const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+      sock.sendMessage(myJid, { text: '💪 Koçun aktif! Şifreleme oturumu kuruldu, bana bu sohbetten yazabilirsin.' })
+        .then((sent) => {
+          if (sent?.key?.id) botMessages.add(sent.key.id);
+          console.log('📤 Başlangıç mesajı telefonuna gönderildi!');
+        })
+        .catch((err) => console.error('❌ Başlangıç mesajı hatası:', err));
+    }
     }
 
     if (connection === 'close') {
