@@ -90,6 +90,7 @@ const model = genAI.getGenerativeModel({
 });
 
 const botMessages = new Set();
+const processedIds = new Set();
 
 async function connectToWhatsApp() {
   console.log('🔌 WhatsApp soketi başlatılıyor...');
@@ -128,6 +129,7 @@ async function connectToWhatsApp() {
 
     if (connection === 'open') {
       console.log('🚀 WhatsApp Yaşam & Spor Koçun Bulutta Aktif!');
+      console.log('👤 Bağlı Kullanıcı Bilgisi:', JSON.stringify(sock.user));
       latestQR = '';
       isReady = true;
     }
@@ -144,30 +146,37 @@ async function connectToWhatsApp() {
   });
 
   sock.ev.on('messages.upsert', async (m) => {
-    if (m.type !== 'notify') return;
-
     for (const msg of m.messages) {
       if (!msg.message) continue;
-      if (botMessages.has(msg.key.id)) continue;
+      if (botMessages.has(msg.key.id) || processedIds.has(msg.key.id)) continue;
+
+      // Eski mesajları (1 dakikadan eski) yoksay
+      const msgAgeSec = Math.floor(Date.now() / 1000) - Number(msg.messageTimestamp || 0);
+      if (msgAgeSec > 60) continue;
 
       const remoteJid = msg.key.remoteJid;
       if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
+      const innerMsg = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message;
+      const text = innerMsg?.conversation || innerMsg?.extendedTextMessage?.text;
+      if (!text) continue;
+
       const myNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
       const myLid = sock.user?.lid?.split(':')[0]?.split('@')[0];
       const remoteUser = remoteJid.split('@')[0].split(':')[0];
+      const altUser = msg.key.remoteJidAlt?.split('@')[0]?.split(':')[0];
 
-      const isSelfChat = (myNumber && remoteUser === myNumber) || (myLid && remoteUser === myLid);
+      const isSelfChat =
+        (myNumber && (remoteUser === myNumber || altUser === myNumber)) ||
+        (myLid && (remoteUser === myLid || altUser === myLid));
       const isIncoming = !msg.key.fromMe;
 
-      const innerMsg = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message;
-      const text = innerMsg?.conversation || innerMsg?.extendedTextMessage?.text;
-
-      if (!text) continue;
-
-      console.log(`🔍 Mesaj algılandı | Kimden: ${remoteJid} | Kendi Sohbetim: ${isSelfChat} | İçerik: ${text}`);
+      console.log(`📩 Ham Paket [${m.type}] | fromMe: ${msg.key.fromMe} | JID: ${remoteJid} | Alt: ${msg.key.remoteJidAlt || '-'} | Self: ${isSelfChat} | Metin: ${text}`);
 
       if (isIncoming || isSelfChat) {
+        processedIds.add(msg.key.id);
+        setTimeout(() => processedIds.delete(msg.key.id), 300000);
+
         try {
           const chat = model.startChat();
           const result = await chat.sendMessage(text);
@@ -179,6 +188,7 @@ async function connectToWhatsApp() {
             botMessages.add(sentMsg.key.id);
             setTimeout(() => botMessages.delete(sentMsg.key.id), 300000);
           }
+          console.log('✅ Yanıt gönderildi!');
         } catch (error) {
           console.error('❌ Gemini veya mesaj gönderme hatası:', error);
         }
