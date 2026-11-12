@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const QRCode = require('qrcode');
@@ -94,14 +94,23 @@ const botMessages = new Set();
 async function connectToWhatsApp() {
   console.log('🔌 WhatsApp soketi başlatılıyor...');
   const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
+  
+  let waVersion;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    waVersion = version;
+    console.log('📦 WhatsApp Web sürümü alındı:', waVersion);
+  } catch (e) {
+    console.log('⚠️ Sürüm alınamadı, varsayılan kullanılıyor.');
+  }
 
   const sock = makeWASocket({
+    ...(waVersion ? { version: waVersion } : {}),
     auth: state,
-    logger: pino({ level: 'warn' }),
+    logger: pino({ level: 'silent' }),
     browser: ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
-    markOnlineOnConnect: false,
-    connectTimeoutMs: 60000
+    markOnlineOnConnect: false
   });
 
   activeSock = sock;
@@ -127,7 +136,7 @@ async function connectToWhatsApp() {
       isReady = false;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(`⚠️ Bağlantı kapandı (Kod: ${statusCode}):`, lastDisconnect?.error?.message || '');
+      console.log(`⚠️ Bağlantı kapandı (Kod: ${statusCode}), yeniden bağlanılıyor:`, shouldReconnect);
       if (shouldReconnect) {
         setTimeout(connectToWhatsApp, 2000);
       }
