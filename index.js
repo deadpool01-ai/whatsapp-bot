@@ -122,6 +122,40 @@ async function connectToWhatsApp() {
       const remoteJid = msg.key.remoteJid;
       if (!remoteJid || remoteJid.includes('@g.us') || remoteJid === 'status@broadcast') continue;
 
+      // Kullanıcının kendi numarası (Bağlantıdan çekilen temiz numara)
+      const myNumber = state.creds.me?.id?.split(':')[0];
+      
+      if (!myNumber) continue;
+
+      // Mesaj kimden geldi (Eğer kendi numaramızdan geliyorsa biz atmışızdır)
+      const isFromMe = msg.key.fromMe || (remoteJid.includes(myNumber));
+
+      if (isFromMe) {
+        console.log(`📩 YAKALANDI: "${text}"`);
+        try {
+          const chat = model.startChat();
+          const result = await chat.sendMessage(text);
+          const replyText = result.response.text() + '\u200B';
+
+          await sock.sendMessage(myNumber + '@s.whatsapp.net', { text: replyText });
+          console.log('✅ YANIT İLETİLDİ!');
+        } catch (error) {
+          console.error('❌ Gemini Hatası:', error);
+        }
+      }
+    }
+  });
+      }
+
+      const text = raw?.conversation || raw?.extendedTextMessage?.text;
+      if (!text || text.includes('\u200B')) continue;
+
+      const now = Math.floor(Date.now() / 1000);
+      if (now - Number(msg.messageTimestamp || now) > 60) continue;
+
+      const remoteJid = msg.key.remoteJid;
+      if (!remoteJid || remoteJid.includes('@g.us') || remoteJid === 'status@broadcast') continue;
+
       // Hem telefon numarası hem @lid kimliğini doğrudan diskten kontrol et
       const myNumber = state.creds.me?.id?.split(':')[0]?.split('@')[0];
       const myLid = state.creds.me?.lid?.split(':')[0]?.split('@')[0];
