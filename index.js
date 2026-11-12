@@ -11,10 +11,11 @@ let latestQR = '';
 let isReady = false;
 let activeSock = null;
 
-app.get('/', (req, res) => res.send('Bot aktif! Bağlanmak için /qr adresine gidin.'));
+// --- WEB SUNUCUSU (Bağlantı için) ---
+app.get('/', (req, res) => res.send('Bot aktif! /qr adresine git.'));
 
 app.get('/qr', async (req, res) => {
-  if (isReady) return res.send('<h1 style="color:green;text-align:center;margin-top:50px;">✅ Koçun Aktif! WhatsApp "Siz" sohbetinden yazabilirsin.</h1>');
+  if (isReady) return res.send('<h1 style="color:green;text-align:center;margin-top:50px;">✅ Koçun Aktif! WhatsApp\'tan kurduğun özel gruba mesaj atabilirsin.</h1>');
   let qrHtml = '<p>QR hazırlanıyor...</p>';
   if (latestQR) {
     try { qrHtml = `<img src="${await QRCode.toDataURL(latestQR)}" style="width:220px; border:2px solid #ccc; padding:10px; border-radius:10px;"/>`; } catch (e) {}
@@ -46,12 +47,14 @@ app.get('/pair', async (req, res) => {
 
 app.listen(PORT, () => console.log(`Sunucu ${PORT} portunda dinleniyor.`));
 
+// --- GEMINI YAPAY ZEKA ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({
   model: "gemini-2.5-flash",
   systemInstruction: "Sen kullanıcının kişisel yaşam ve spor koçusun. Tavrın motive edici, disiplinli, samimi ve sonuç odaklı olmalı."
 });
 
+// --- WHATSAPP BOT ÇEKİRDEĞİ ---
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
   
@@ -59,14 +62,12 @@ async function connectToWhatsApp() {
   try {
     const { version } = await fetchLatestBaileysVersion();
     waVersion = version;
-  } catch (e) {
-    console.log('⚠️ Sürüm alınamadı, varsayılan kullanılıyor.');
-  }
+  } catch (e) {}
 
   const sock = makeWASocket({
     ...(waVersion ? { version: waVersion } : {}),
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: pino({ level: 'silent' }), // Kafa karıştıran şifreleme loglarını kapattık
     browser: Browsers.macOS('Desktop'),
     syncFullHistory: false,
     markOnlineOnConnect: true
@@ -77,32 +78,19 @@ async function connectToWhatsApp() {
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
-    if (qr) {
-      console.log('✅ YENİ QR KODU ALINDI!');
-      latestQR = qr;
-    }
+    if (qr) latestQR = qr;
 
     if (connection === 'open') {
       console.log('🚀 DİKKAT: WhatsApp Yaşam & Spor Koçun Bulutta Aktif!');
       isReady = true;
       latestQR = '';
-
-      const myJid = state.creds.me?.id?.split(':')[0] + '@s.whatsapp.net';
-      if (myJid && !myJid.startsWith('undefined')) {
-        sock.sendMessage(myJid, { text: '💪 Koçun 7/24 aktif! Bana buradan hedeflerini yazabilirsin.\u200B' }).catch(() => {});
-      }
     }
 
     if (connection === 'close') {
       isReady = false;
       const code = lastDisconnect?.error?.output?.statusCode;
-      if (code === 515) {
-        console.log('🔄 WhatsApp senkronizasyon istedi (515). Toparlanıyor...');
-      } else {
-        console.log(`⚠️ Bağlantı koptu (Kod: ${code}). Yeniden bağlanıyor...`);
-      }
       if (code !== DisconnectReason.loggedOut) {
-        setTimeout(connectToWhatsApp, 2000);
+        setTimeout(connectToWhatsApp, 2000); // 515 gelse bile 2 saniyede ayağa kalkar
       }
     }
   });
@@ -111,40 +99,29 @@ async function connectToWhatsApp() {
     for (const msg of m.messages) {
       if (!msg.message) continue;
 
-      let raw = msg.message;
-      for (let i = 0; i < 4; i++) {
-        if (raw?.deviceSentMessage?.message) raw = raw.deviceSentMessage.message;
-        else if (raw?.ephemeralMessage?.message) raw = raw.ephemeralMessage.message;
-        else if (raw?.viewOnceMessage?.message) raw = raw.viewOnceMessage.message;
-        else if (raw?.viewOnceMessageV2?.message) raw = raw.viewOnceMessageV2.message;
-        else break;
+      // Zarfı çok basit bir şekilde soyuyoruz
+      let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+      if (!text && msg.message?.deviceSentMessage?.message) {
+        text = msg.message.deviceSentMessage.message?.conversation || msg.message.deviceSentMessage.message?.extendedTextMessage?.text;
       }
-
-      const text = raw?.conversation || raw?.extendedTextMessage?.text;
+      
+      // Eğer metin yoksa veya botun kendi attığı görünmez imzalı (\u200B) mesajsa atla
       if (!text || text.includes('\u200B')) continue;
 
-      const now = Math.floor(Date.now() / 1000);
-      if (now - Number(msg.messageTimestamp || now) > 60) continue;
-
       const remoteJid = msg.key.remoteJid;
-      if (!remoteJid || remoteJid.includes('@g.us') || remoteJid === 'status@broadcast') continue;
+      if (!remoteJid) continue;
 
-      // Kullanıcının kendi numarası (Bağlantıdan çekilen temiz numara)
-      const myNumber = state.creds.me?.id?.split(':')[0];
-      if (!myNumber) continue;
-
-      // Mesajın kendi telefonundan çıkıp çıkmadığını veya sana gönderilip gönderilmediğini kontrol et
-      const isFromMe = msg.key.fromMe || remoteJid.includes(myNumber);
-
-      if (isFromMe) {
+      // SADECE senin gönderdiğin mesajlara cevap ver (Başkası botu kullanamaz)
+      if (msg.key.fromMe) {
         console.log(`📩 YAKALANDI: "${text}"`);
         try {
           const chat = model.startChat();
           const result = await chat.sendMessage(text);
-          const replyText = result.response.text() + '\u200B'; // Görünmez imza
+          // Cevabın sonuna boşluk karakteri ekliyoruz ki bot kendi kendine döngüye girmesin
+          const replyText = result.response.text() + '\u200B'; 
 
-          // Cevabı direkt olarak "Kendine Mesaj At" (Siz) sohbetine yolla
-          await sock.sendMessage(myNumber + '@s.whatsapp.net', { text: replyText });
+          // Mesajı geldiği yere (ister grup, ister sohbet) geri gönder
+          await sock.sendMessage(remoteJid, { text: replyText });
           console.log('✅ YANIT İLETİLDİ!');
         } catch (error) {
           console.error('❌ Gemini Hatası:', error);
