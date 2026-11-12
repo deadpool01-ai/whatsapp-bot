@@ -122,7 +122,7 @@ async function connectToWhatsApp() {
   activeSock = sock;
   sock.ev.on('creds.update', saveCreds);
 
-  // En alt katman ham WebSocket mesaj dinleyicisi (şifre çözülmeden önce yakalar)
+  // En alt katman ham WebSocket mesaj dinleyicisi
   sock.ws.on('CB:message', (node) => {
     console.log('📡 Ham Sinyal Geldi | Kimden:', node?.attrs?.from, '| Tip:', node?.attrs?.type);
   });
@@ -151,7 +151,6 @@ async function connectToWhatsApp() {
           console.log('📤 Başlangıç mesajı telefonuna gönderildi!');
         })
         .catch((err) => console.error('❌ Başlangıç mesajı hatası:', err));
-    }
     }
 
     if (connection === 'close') {
