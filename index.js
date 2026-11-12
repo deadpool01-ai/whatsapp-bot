@@ -10,14 +10,14 @@ const PORT = process.env.PORT || 3000;
 let latestQR = '';
 let isReady = false;
 
-app.get('/', (req, res) => res.send('Bot aktif! QR için /qr adresine gidin.'));
+app.get('/', (req, res) => res.send('Baileys Bot aktif! QR için /qr adresine gidin.'));
 
 app.get('/qr', async (req, res) => {
   if (isReady) {
     return res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px; color:#25D366;">
         <h1>✅ WhatsApp Bağlantısı Başarılı!</h1>
-        <p style="color:#333; font-size:18px;">Koçun aktif ve mesajlarını bekliyor.</p>
+        <p style="color:#333; font-size:18px;">Koçun aktif, WhatsApp'tan kendine mesaj atabilirsin.</p>
       </div>
     `);
   }
@@ -26,7 +26,7 @@ app.get('/qr', async (req, res) => {
     return res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
         <h2>⏳ QR kod hazırlanıyor...</h2>
-        <p>5-10 saniye bekleyip sayfayı yenileyin (F5).</p>
+        <p>5 saniye bekleyip sayfayı yenile (F5).</p>
       </div>
     `);
   }
@@ -56,14 +56,14 @@ const model = genAI.getGenerativeModel({
 const botMessages = new Set();
 
 async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+  const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
-    browser: ['Koc Botu', 'Chrome', '1.0.0']
+    browser: ['Ubuntu', 'Chrome', '20.0.04']
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -77,52 +77,66 @@ async function connectToWhatsApp() {
       isReady = false;
     }
 
-    if (connection === 'close') {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log('Bağlantı kapandı, yeniden bağlanılıyor:', shouldReconnect);
-      isReady = false;
-      if (shouldReconnect) {
-        connectToWhatsApp();
-      }
-    } else if (connection === 'open') {
+    if (connection === 'open') {
       console.log('🚀 WhatsApp Yaşam & Spor Koçun Bulutta Aktif!');
       latestQR = '';
       isReady = true;
     }
+
+    if (connection === 'close') {
+      isReady = false;
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('Bağlantı kapandı, yeniden bağlanılıyor:', shouldReconnect);
+      if (shouldReconnect) {
+        connectToWhatsApp();
+      }
+    }
   });
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
+  sock.ev.on('messages.upsert', async (m) => {
+    if (m.type !== 'notify') return;
 
-    for (const msg of messages) {
-      if (!msg.message || botMessages.has(msg.key.id)) continue;
+    for (const msg of m.messages) {
+      if (!msg.message) continue;
+      if (botMessages.has(msg.key.id)) continue;
 
-      const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+      const remoteJid = msg.key.remoteJid;
+      if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
+
+      // Hem telefon numarası hem de yeni @lid kimliği için kendine mesaj kontrolü
+      const myNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
+      const myLid = sock.user?.lid?.split(':')[0]?.split('@')[0];
+      const remoteUser = remoteJid.split('@')[0].split(':')[0];
+
+      const isSelfChat = (myNumber && remoteUser === myNumber) || (myLid && remoteUser === myLid);
+      const isIncoming = !msg.key.fromMe;
+
+      // Süreli (kaybolan) mesajları ve normal mesajları çöz
+      const innerMsg = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message;
+      const text = innerMsg?.conversation || innerMsg?.extendedTextMessage?.text;
+
       if (!text) continue;
 
-      const myNumber = sock.user?.id?.split(':')[0];
-      const remoteNumber = msg.key.remoteJid?.split('@')[0];
-      const isSelfChat = myNumber && remoteNumber === myNumber;
-      const isIncoming = !msg.key.fromMe;
+      console.log(`🔍 Mesaj algılandı | Kimden: ${remoteJid} | Kendi Sohbetim mi: ${isSelfChat} | İçerik: ${text}`);
 
       if (isIncoming || isSelfChat) {
         try {
-          console.log(`📩 Mesaj alındı: ${text}`);
-          const result = await model.generateContent(text);
-          const replyText = result.response.text();
+          const chat = model.startChat();
+          const result = await chat.sendMessage(text);
+          const response = await result.response;
+          const replyText = response.text();
 
-          const sentMsg = await sock.sendMessage(msg.key.remoteJid, { text: replyText }, { quoted: msg });
+          const sentMsg = await sock.sendMessage(remoteJid, { text: replyText }, { quoted: msg });
           if (sentMsg?.key?.id) {
             botMessages.add(sentMsg.key.id);
             setTimeout(() => botMessages.delete(sentMsg.key.id), 300000);
           }
         } catch (error) {
-          console.error('Mesaj işleme hatası:', error);
+          console.error('❌ Gemini veya mesaj gönderme hatası:', error);
         }
       }
     }
   });
 }
 
-connectToWhatsApp();
+connectToWhatsApp().catch(err => console.error('Başlatma hatası:', err));
