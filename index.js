@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const QRCode = require('qrcode');
@@ -11,7 +11,7 @@ let latestQR = '';
 let isReady = false;
 let activeSock = null;
 
-app.get('/', (req, res) => res.send('Baileys Bot aktif! Bağlanmak için /qr adresine gidin.'));
+app.get('/', (req, res) => res.send('Bot aktif! Bağlanmak için /qr adresine gidin.'));
 
 app.get('/qr', async (req, res) => {
   if (isReady) {
@@ -36,8 +36,8 @@ app.get('/qr', async (req, res) => {
       <h1 style="color:#25D366;">WhatsApp Koçluk Botu Bağlantısı</h1>
       
       <div style="background:#f4f4f4; padding:20px; border-radius:12px; max-width:400px; width:100%; margin-bottom:25px;">
-        <h3>Yöntem 1: Telefon Numarası ile (Önerilen)</h3>
-        <p style="font-size:14px; color:#555;">Numaranı başında <b>90</b> olacak şekilde boşluksuz yaz (Örn: 905321234567)</p>
+        <h3>Telefon Numarası ile Bağlan</h3>
+        <p style="font-size:14px; color:#555;">Numaranı başında <b>90</b> olacak şekilde yaz (Örn: 905321234567)</p>
         <form action="/pair" method="GET" style="display:flex; gap:8px; justify-content:center; margin-top:10px;">
           <input type="text" name="number" placeholder="905XXXXXXXXX" required style="padding:10px; font-size:16px; border:1px solid #ccc; border-radius:6px; width:180px;"/>
           <button type="submit" style="padding:10px 16px; font-size:16px; background:#25D366; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Kod Al</button>
@@ -45,7 +45,7 @@ app.get('/qr', async (req, res) => {
       </div>
 
       <div>
-        <h4>Yöntem 2: QR Kod</h4>
+        <h4>veya QR Kod ile Bağlan</h4>
         ${qrHtml}
       </div>
     </div>
@@ -53,30 +53,31 @@ app.get('/qr', async (req, res) => {
 });
 
 app.get('/pair', async (req, res) => {
-  if (!activeSock) return res.send('Sunucu henüz hazır değil, 5 saniye sonra geri dönüp tekrar dene.');
-  const rawNumber = req.query.number || '';
-  const cleanNumber = rawNumber.replace(/\D/g, '');
+  if (!activeSock) return res.send('Soket henüz hazır değil, 5 saniye sonra geri dönüp tekrar dene.');
+  const cleanNumber = (req.query.number || '').replace(/\D/g, '');
 
   if (cleanNumber.length < 11) {
-    return res.send('Hatalı numara! Lütfen başında 90 olacak şekilde 12 haneli gir (Örn: 905321234567). <a href="/qr">Geri Dön</a>');
+    return res.send('Hatalı numara! Başında 90 olacak şekilde 12 haneli gir. <a href="/qr">Geri Dön</a>');
   }
 
   try {
+    console.log('📲 Eşleştirme kodu isteniyor:', cleanNumber);
     const code = await activeSock.requestPairingCode(cleanNumber);
     const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+    console.log('🔢 Üretilen Kod:', formattedCode);
     res.send(`
       <div style="font-family:sans-serif; text-align:center; padding-top:50px;">
         <h2>WhatsApp Eşleştirme Kodun:</h2>
         <div style="font-size:36px; font-weight:bold; letter-spacing:4px; color:#25D366; background:#f0fdf4; display:inline-block; padding:15px 30px; border-radius:12px; border:2px dashed #25D366; margin:20px 0;">
           ${formattedCode}
         </div>
-        <p style="font-size:16px; color:#333;">Telefonunda <b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla -> Telefon numarasıyla bağla</b> kısmına girip bu kodu yaz.</p>
+        <p style="font-size:16px; color:#333;">Telefonunda <b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla -> Telefon numarasıyla bağla</b> kısmına bu kodu gir.</p>
         <p style="margin-top:20px;"><a href="/qr">Durumu Kontrol Et</a></p>
       </div>
     `);
   } catch (err) {
-    console.error('Eşleştirme kodu hatası:', err);
-    res.send(`Kod alınırken hata oluştu: ${err.message}. <a href="/qr">Tekrar Dene</a>`);
+    console.error('❌ Eşleştirme kodu hatası:', err);
+    res.send(`Hata: ${err.message}. <a href="/qr">Tekrar Dene</a>`);
   }
 });
 
@@ -91,16 +92,16 @@ const model = genAI.getGenerativeModel({
 const botMessages = new Set();
 
 async function connectToWhatsApp() {
+  console.log('🔌 WhatsApp soketi başlatılıyor...');
   const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
-  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
-    version,
     auth: state,
-    logger: pino({ level: 'silent' }),
+    logger: pino({ level: 'warn' }),
     browser: ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
-    markOnlineOnConnect: false
+    markOnlineOnConnect: false,
+    connectTimeoutMs: 60000
   });
 
   activeSock = sock;
