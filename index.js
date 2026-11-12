@@ -150,15 +150,17 @@ async function connectToWhatsApp() {
       if (!msg.message) continue;
       if (botMessages.has(msg.key.id) || processedIds.has(msg.key.id)) continue;
 
-      // Eski mesajları (1 dakikadan eski) yoksay
-      const msgAgeSec = Math.floor(Date.now() / 1000) - Number(msg.messageTimestamp || 0);
-      if (msgAgeSec > 60) continue;
-
       const remoteJid = msg.key.remoteJid;
       if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
-      const innerMsg = msg.message?.ephemeralMessage?.message || msg.message?.viewOnceMessage?.message || msg.message;
-      const text = innerMsg?.conversation || innerMsg?.extendedTextMessage?.text;
+      // Telefondan kendine atılan mesajlardaki deviceSentMessage zarfını aç
+      let rawContent = msg.message;
+      if (rawContent?.deviceSentMessage?.message) rawContent = rawContent.deviceSentMessage.message;
+      if (rawContent?.ephemeralMessage?.message) rawContent = rawContent.ephemeralMessage.message;
+      if (rawContent?.viewOnceMessage?.message) rawContent = rawContent.viewOnceMessage.message;
+      if (rawContent?.viewOnceMessageV2?.message) rawContent = rawContent.viewOnceMessageV2.message;
+
+      const text = rawContent?.conversation || rawContent?.extendedTextMessage?.text;
       if (!text) continue;
 
       const myNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
@@ -171,7 +173,7 @@ async function connectToWhatsApp() {
         (myLid && (remoteUser === myLid || altUser === myLid));
       const isIncoming = !msg.key.fromMe;
 
-      console.log(`📩 Ham Paket [${m.type}] | fromMe: ${msg.key.fromMe} | JID: ${remoteJid} | Alt: ${msg.key.remoteJidAlt || '-'} | Self: ${isSelfChat} | Metin: ${text}`);
+      console.log(`📩 Mesaj Yakalandı | JID: ${remoteJid} | Self: ${isSelfChat} | Metin: ${text}`);
 
       if (isIncoming || isSelfChat) {
         processedIds.add(msg.key.id);
